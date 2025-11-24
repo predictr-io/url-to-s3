@@ -1,5 +1,6 @@
 import * as core from '@actions/core';
-import { S3Client, PutObjectCommand, PutObjectCommandInput } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommandInput } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
 import { Readable } from 'stream';
 
 export interface UploadOptions {
@@ -145,11 +146,24 @@ export async function uploadStreamToS3(options: UploadOptions): Promise<UploadRe
     core.info(`Metadata: ${JSON.stringify(uploadParams.Metadata)}`);
   }
 
-  // Upload to S3
+  // Upload to S3 using Upload class (handles streaming properly)
   try {
     core.info('Starting streaming upload to S3...');
-    const command = new PutObjectCommand(uploadParams);
-    const response = await s3Client.send(command);
+
+    const upload = new Upload({
+      client: s3Client,
+      params: uploadParams,
+    });
+
+    // Upload with progress tracking
+    upload.on('httpUploadProgress', (progress) => {
+      if (progress.loaded && progress.total) {
+        const percent = ((progress.loaded / progress.total) * 100).toFixed(1);
+        core.info(`Upload progress: ${percent}% (${progress.loaded}/${progress.total} bytes)`);
+      }
+    });
+
+    const response = await upload.done();
 
     const etag = response.ETag || '';
     const s3Url = `s3://${options.bucket}/${options.key}`;

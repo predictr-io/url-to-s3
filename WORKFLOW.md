@@ -7,8 +7,8 @@ This guide explains how to develop, test, and release changes to this GitHub Act
 ### 1. Clone and Install Dependencies
 
 ```bash
-git clone git@github.com:predictr-io/url_to_s3.git
-cd url_to_s3
+git clone git@github.com:predictr-io/url-to-s3.git
+cd url-to-s3
 npm install
 ```
 
@@ -83,7 +83,7 @@ jobs:
           aws-region: us-east-1
 
       # Reference your branch for testing
-      - uses: predictr-io/url_to_s3@your-branch-name
+      - uses: predictr-io/url-to-s3@your-branch-name
         with:
           url: 'https://httpbin.org/json'
           s3-bucket: 'test-bucket'
@@ -191,10 +191,10 @@ After the workflow completes:
 
 ```yaml
 # Recommended: Major version (auto-updated)
-uses: predictr-io/url_to_s3@v1
+uses: predictr-io/url-to-s3@v1
 
 # Specific version
-uses: predictr-io/url_to_s3@v1.0.0
+uses: predictr-io/url-to-s3@v1.0.0
 ```
 
 ## Common Workflows
@@ -270,7 +270,7 @@ git push --follow-tags
 
 # The workflow will create a new v2 major tag
 # Users on v1 stay on v1.x.x (no breaking changes)
-# Users who want v2 can upgrade: uses: predictr-io/url_to_s3@v2
+# Users who want v2 can upgrade: uses: predictr-io/url-to-s3@v2
 ```
 
 ## Troubleshooting

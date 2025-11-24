@@ -35,7 +35,7 @@ Download a file and upload to S3:
 
 ```yaml
 - name: Download and upload to S3
-  uses: predictr-io/url_to_s3@v1
+  uses: predictr-io/url-to-s3@v1
   with:
     url: 'https://example.com/data.json'
     s3-bucket: 'my-bucket'
@@ -65,7 +65,7 @@ jobs:
 
       - name: Download and upload to S3
         id: upload
-        uses: predictr-io/url_to_s3@v1
+        uses: predictr-io/url-to-s3@v1
         with:
           url: 'https://api.example.com/data'
           method: 'GET'
@@ -88,7 +88,7 @@ jobs:
 
 ```yaml
 - name: Download with Basic Auth
-  uses: predictr-io/url_to_s3@v1
+  uses: predictr-io/url-to-s3@v1
   with:
     url: 'https://api.example.com/data'
     auth-type: 'basic'
@@ -102,7 +102,7 @@ jobs:
 
 ```yaml
 - name: Download with Bearer Token
-  uses: predictr-io/url_to_s3@v1
+  uses: predictr-io/url-to-s3@v1
   with:
     url: 'https://api.example.com/data'
     auth-type: 'bearer'
@@ -115,7 +115,7 @@ jobs:
 
 ```yaml
 - name: POST to API and upload response
-  uses: predictr-io/url_to_s3@v1
+  uses: predictr-io/url-to-s3@v1
   with:
     url: 'https://api.example.com/generate-report'
     method: 'POST'
@@ -129,7 +129,7 @@ jobs:
 
 ```yaml
 - name: Download with retry logic
-  uses: predictr-io/url_to_s3@v1
+  uses: predictr-io/url-to-s3@v1
   with:
     url: 'https://unreliable-api.com/data'
     enable-retry: true  # Retries up to 3 times with exponential backoff
@@ -142,7 +142,7 @@ jobs:
 
 ```yaml
 - name: Upload with tags and metadata
-  uses: predictr-io/url_to_s3@v1
+  uses: predictr-io/url-to-s3@v1
   with:
     url: 'https://example.com/data.json'
     s3-bucket: 'my-bucket'
@@ -275,7 +275,7 @@ This compiles TypeScript and bundles everything into `dist/index.js` using `@ver
    - Create a GitHub Release
    - Update the major version tag (e.g., `v1`)
 
-Users can then reference your action as `predictr-io/url_to_s3@v1` (recommended) or `predictr-io/url_to_s3@v1.0.0` (specific version).
+Users can then reference your action as `predictr-io/url-to-s3@v1` (recommended) or `predictr-io/url-to-s3@v1.0.0` (specific version).
 
 ## License
 

@@ -83,8 +83,8 @@ A GitHub Action that fetches content from any URL and uploads it to an S3 bucket
 6. Workflow auto-updates major version tag (v1 → v1.0.0)
 
 **For users consuming this action:**
-- Reference by major version: `uses: predictr-io/url_to_s3@v1` (recommended)
-- Or specific version: `uses: predictr-io/url_to_s3@v1.0.0`
+- Reference by major version: `uses: predictr-io/url-to-s3@v1` (recommended)
+- Or specific version: `uses: predictr-io/url-to-s3@v1.0.0`
 
 ### Error Handling
 - Validate mandatory parameters
@@ -104,7 +104,7 @@ No additional configuration needed!
 
 ## File Structure
 ```
-url_to_s3/
+url-to-s3/
 ├── .github/
 │   └── workflows/
 │       └── release.yml          # Verify dist/ and create releases

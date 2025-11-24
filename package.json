@@ -11,7 +11,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/predictr-io/url_to_s3.git"
+    "url": "git+https://github.com/predictr-io/url-to-s3.git"
   },
   "keywords": [
     "github-actions",

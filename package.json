@@ -1,6 +1,6 @@
 {
   "name": "url-to-s3",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "GitHub Action to fetch content from any URL and upload to S3",
   "main": "dist/index.js",
   "scripts": {

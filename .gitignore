@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Intermediate build output (TypeScript → lib/)
+lib/
+
+# Ignore JS files in src/ (we only commit TypeScript)
+src/**/*.js
+src/**/*.js.map
+
+# dist/ is committed (contains bundled action code)
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local

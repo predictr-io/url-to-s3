@@ -1,0 +1,78 @@
+name: 'URL to S3'
+description: 'Fetch content from any URL and upload it to Amazon S3'
+author: 'predictr-io'
+
+branding:
+  icon: 'download-cloud'
+  color: 'orange'
+
+inputs:
+  # Mandatory parameters
+  url:
+    description: 'The URL to fetch content from'
+    required: true
+
+  s3-bucket:
+    description: 'Target S3 bucket name'
+    required: true
+
+  s3-key:
+    description: 'Target object name/path in S3'
+    required: true
+
+  # Optional HTTP parameters
+  method:
+    description: 'HTTP method (GET, POST, PUT, etc.)'
+    required: false
+    default: 'GET'
+
+  headers:
+    description: 'HTTP headers as JSON object or multiline key=value pairs'
+    required: false
+
+  post-data:
+    description: 'POST/PUT request body data (used when method is POST or PUT)'
+    required: false
+
+  # Optional S3 parameters
+  bucket-owner:
+    description: 'Expected bucket owner account ID'
+    required: false
+
+  acl:
+    description: 'Canned ACL (private, public-read, public-read-write, authenticated-read, aws-exec-read, bucket-owner-read, bucket-owner-full-control)'
+    required: false
+
+  storage-class:
+    description: 'S3 storage class (STANDARD, REDUCED_REDUNDANCY, STANDARD_IA, ONEZONE_IA, INTELLIGENT_TIERING, GLACIER, DEEP_ARCHIVE, GLACIER_IR)'
+    required: false
+    default: 'STANDARD'
+
+  content-type:
+    description: 'Override Content-Type for S3 object (auto-detected from HTTP response if not specified)'
+    required: false
+
+  cache-control:
+    description: 'Cache-Control header for S3 object'
+    required: false
+
+  metadata:
+    description: 'Custom metadata as JSON object (e.g., {"key1": "value1", "key2": "value2"})'
+    required: false
+
+outputs:
+  status-code:
+    description: 'HTTP status code from the URL request'
+
+  content-length:
+    description: 'Size of downloaded content in bytes'
+
+  s3-url:
+    description: 'S3 URL of uploaded object (s3://bucket/key format)'
+
+  s3-etag:
+    description: 'ETag of the uploaded S3 object'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

@@ -14,6 +14,7 @@ export interface UploadOptions {
   storageClass?: string;
   cacheControl?: string;
   metadata?: Record<string, string>;
+  tags?: Record<string, string>;
 }
 
 export interface UploadResult {
@@ -22,25 +23,69 @@ export interface UploadResult {
 }
 
 /**
- * Parse metadata from input string
- * Expects JSON object format
+ * Parse key=value pairs from input string
+ * Supports both JSON object and semicolon-separated key=value pairs
  */
-export function parseMetadata(metadataInput?: string): Record<string, string> | undefined {
-  if (!metadataInput || metadataInput.trim() === '') {
+export function parseKeyValuePairs(input?: string, name = 'input'): Record<string, string> | undefined {
+  if (!input || input.trim() === '') {
     return undefined;
   }
 
-  try {
-    const parsed = JSON.parse(metadataInput.trim());
-    if (typeof parsed !== 'object' || Array.isArray(parsed)) {
-      core.warning('Metadata must be a JSON object');
-      return undefined;
+  const trimmed = input.trim();
+
+  // Try parsing as JSON first
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+        core.warning(`${name} must be a JSON object`);
+        return undefined;
+      }
+      return parsed;
+    } catch (error) {
+      core.warning(`Failed to parse ${name} as JSON: ${error}`);
     }
-    return parsed;
-  } catch (error) {
-    core.warning(`Failed to parse metadata as JSON: ${error}`);
-    return undefined;
   }
+
+  // Parse as semicolon-separated key=value format
+  const result: Record<string, string> = {};
+  const pairs = trimmed.split(';');
+
+  for (const pair of pairs) {
+    const trimmedPair = pair.trim();
+    if (trimmedPair === '') continue;
+
+    const separatorIndex = trimmedPair.indexOf('=');
+    if (separatorIndex === -1) {
+      core.warning(`Skipping invalid ${name} pair: ${trimmedPair}`);
+      continue;
+    }
+
+    const key = trimmedPair.substring(0, separatorIndex).trim();
+    const value = trimmedPair.substring(separatorIndex + 1).trim();
+
+    if (key) {
+      result[key] = value;
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+/**
+ * Parse metadata from input string
+ * Supports both JSON object and semicolon-separated key=value pairs
+ */
+export function parseMetadata(metadataInput?: string): Record<string, string> | undefined {
+  return parseKeyValuePairs(metadataInput, 'metadata');
+}
+
+/**
+ * Parse tags from input string
+ * Supports both JSON object and semicolon-separated key=value pairs
+ */
+export function parseTags(tagsInput?: string): Record<string, string> | undefined {
+  return parseKeyValuePairs(tagsInput, 'tags');
 }
 
 /**
@@ -115,6 +160,14 @@ export async function uploadStreamToS3(options: UploadOptions): Promise<UploadRe
     core.info(`Content-Length: unknown (will be determined during upload)`);
   }
 
+  // Convert tags to S3 tagging format
+  let tagging: string | undefined;
+  if (options.tags && Object.keys(options.tags).length > 0) {
+    tagging = Object.entries(options.tags)
+      .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+      .join('&');
+  }
+
   // Prepare upload parameters
   const uploadParams: PutObjectCommandInput = {
     Bucket: options.bucket,
@@ -129,6 +182,7 @@ export async function uploadStreamToS3(options: UploadOptions): Promise<UploadRe
     StorageClass: storageClass as any,
     CacheControl: options.cacheControl,
     Metadata: options.metadata,
+    Tagging: tagging,
   };
 
   // Log upload parameters
@@ -144,6 +198,9 @@ export async function uploadStreamToS3(options: UploadOptions): Promise<UploadRe
   }
   if (uploadParams.Metadata) {
     core.info(`Metadata: ${JSON.stringify(uploadParams.Metadata)}`);
+  }
+  if (uploadParams.Tagging) {
+    core.info(`Tags: ${JSON.stringify(options.tags)}`);
   }
 
   // Upload to S3 using Upload class (handles streaming properly)

@@ -1,6 +1,6 @@
 import * as core from '@actions/core';
 import { downloadAsStream, parseHeaders } from './download';
-import { uploadStreamToS3, parseMetadata } from './upload';
+import { uploadStreamToS3, parseMetadata, parseTags } from './upload';
 
 /**
  * Main action entry point
@@ -16,6 +16,13 @@ async function run(): Promise<void> {
     const method = core.getInput('method') || 'GET';
     const headersInput = core.getInput('headers');
     const postData = core.getInput('post-data');
+    const timeout = parseInt(core.getInput('timeout') || '900000', 10);
+    const enableRetry = core.getInput('enable-retry') === 'true';
+
+    const authType = core.getInput('auth-type') as 'none' | 'basic' | 'bearer';
+    const authUsername = core.getInput('auth-username');
+    const authPassword = core.getInput('auth-password');
+    const authToken = core.getInput('auth-token');
 
     const bucketOwner = core.getInput('bucket-owner');
     const acl = core.getInput('acl');
@@ -23,10 +30,12 @@ async function run(): Promise<void> {
     const contentTypeOverride = core.getInput('content-type');
     const cacheControl = core.getInput('cache-control');
     const metadataInput = core.getInput('metadata');
+    const tagsInput = core.getInput('tags');
 
-    // Parse headers and metadata
+    // Parse headers, metadata, and tags
     const headers = parseHeaders(headersInput);
     const metadata = parseMetadata(metadataInput);
+    const tags = parseTags(tagsInput);
 
     core.info('Starting streaming download from URL...');
 
@@ -36,6 +45,12 @@ async function run(): Promise<void> {
       method: method.toUpperCase(),
       headers,
       data: postData,
+      timeout,
+      enableRetry,
+      authType,
+      authUsername,
+      authPassword,
+      authToken,
     });
 
     core.info('HTTP request successful, streaming to S3...');
@@ -55,6 +70,7 @@ async function run(): Promise<void> {
       storageClass,
       cacheControl: cacheControl || undefined,
       metadata,
+      tags,
     });
 
     core.info('Stream upload completed successfully');

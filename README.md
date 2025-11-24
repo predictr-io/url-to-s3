@@ -4,14 +4,16 @@ A GitHub Action that fetches content from any URL and uploads it directly to Ama
 
 ## Features
 
-- Download content from any URL using GET, POST, or other HTTP methods
-- Upload directly to S3 with full control over bucket settings
-- Custom HTTP headers support
-- POST data for API endpoints
-- S3 ACL and storage class configuration
-- Custom metadata and cache control
-- Works seamlessly with `aws-actions/configure-aws-credentials`
-- Cross-platform support (Linux, macOS, Windows runners)
+- **Streaming architecture** - Handles files of any size without disk storage
+- **HTTP methods** - GET, POST, PUT, PATCH, DELETE
+- **Authentication** - Basic auth and Bearer token support
+- **Retry logic** - Automatic retry on transient failures with exponential backoff
+- **Timeout control** - Configurable timeouts (default: 15 minutes)
+- **Custom headers** - Full control over HTTP headers
+- **S3 features** - ACL, storage class, metadata, tags, cache control
+- **Real byte counting** - Tracks actual bytes transferred (not just headers)
+- **Progress tracking** - Upload progress logging
+- **Cross-platform** - Linux, macOS, Windows runners
 
 ## Prerequisites
 
@@ -80,9 +82,36 @@ jobs:
           echo "ETag: ${{ steps.upload.outputs.s3-etag }}"
 ```
 
-### POST Request Example
+### Authentication Examples
 
-Send POST data to an API and upload the response:
+#### Basic Authentication
+
+```yaml
+- name: Download with Basic Auth
+  uses: predictr-io/url_to_s3@v1
+  with:
+    url: 'https://api.example.com/data'
+    auth-type: 'basic'
+    auth-username: ${{ secrets.API_USER }}
+    auth-password: ${{ secrets.API_PASS }}
+    s3-bucket: 'my-bucket'
+    s3-key: 'data.json'
+```
+
+#### Bearer Token
+
+```yaml
+- name: Download with Bearer Token
+  uses: predictr-io/url_to_s3@v1
+  with:
+    url: 'https://api.example.com/data'
+    auth-type: 'bearer'
+    auth-token: ${{ secrets.API_TOKEN }}
+    s3-bucket: 'my-bucket'
+    s3-key: 'data.json'
+```
+
+### POST Request Example
 
 ```yaml
 - name: POST to API and upload response
@@ -90,48 +119,38 @@ Send POST data to an API and upload the response:
   with:
     url: 'https://api.example.com/generate-report'
     method: 'POST'
-    headers: |
-      Authorization=Bearer ${{ secrets.API_TOKEN }}
-      Content-Type=application/json
+    headers: 'Content-Type=application/json; Accept=application/json'
     post-data: '{"type": "daily", "format": "csv"}'
     s3-bucket: 'reports-bucket'
     s3-key: 'reports/daily-report.csv'
 ```
 
-### Custom Headers Example (JSON format)
+### Retry and Timeout
 
 ```yaml
-- name: Download with custom headers
+- name: Download with retry logic
   uses: predictr-io/url_to_s3@v1
   with:
-    url: 'https://api.example.com/protected/data'
-    headers: |
-      {
-        "Authorization": "Bearer ${{ secrets.API_TOKEN }}",
-        "User-Agent": "GitHub-Actions-Bot",
-        "Accept": "application/json"
-      }
+    url: 'https://unreliable-api.com/data'
+    enable-retry: true  # Retries up to 3 times with exponential backoff
+    timeout: 300000     # 5 minutes timeout
     s3-bucket: 'my-bucket'
     s3-key: 'data.json'
 ```
 
-### With ACL and Metadata
+### S3 Tags and Metadata
 
 ```yaml
-- name: Upload with public read access
+- name: Upload with tags and metadata
   uses: predictr-io/url_to_s3@v1
   with:
-    url: 'https://example.com/public-data.json'
-    s3-bucket: 'public-bucket'
-    s3-key: 'public/data.json'
-    acl: 'public-read'
-    content-type: 'application/json'
-    metadata: |
-      {
-        "source": "example.com",
-        "archived-by": "github-actions",
-        "workflow-run": "${{ github.run_id }}"
-      }
+    url: 'https://example.com/data.json'
+    s3-bucket: 'my-bucket'
+    s3-key: 'data.json'
+    tags: 'Environment=prod; Team=data; Project=analytics'
+    metadata: 'source=example.com; archived-by=github-actions'
+    acl: 'private'
+    storage-class: 'INTELLIGENT_TIERING'
 ```
 
 ## Inputs
@@ -149,8 +168,19 @@ Send POST data to an API and upload the response:
 | Input | Description | Default |
 |-------|-------------|---------|
 | `method` | HTTP method (GET, POST, PUT, etc.) | `GET` |
-| `headers` | HTTP headers as JSON object or multiline key=value pairs | - |
+| `headers` | HTTP headers as JSON or semicolon-separated `key=value` pairs | - |
 | `post-data` | POST/PUT request body data | - |
+| `timeout` | Request timeout in milliseconds | `900000` (15 min) |
+| `enable-retry` | Enable automatic retry on failures | `false` |
+
+### Authentication Inputs
+
+| Input | Description | Default |
+|-------|-------------|---------|
+| `auth-type` | Authentication type: `none`, `basic`, or `bearer` | `none` |
+| `auth-username` | Username for basic authentication | - |
+| `auth-password` | Password for basic authentication | - |
+| `auth-token` | Token for bearer authentication | - |
 
 ### Optional S3 Inputs
 
@@ -161,7 +191,8 @@ Send POST data to an API and upload the response:
 | `storage-class` | S3 storage class (`STANDARD`, `INTELLIGENT_TIERING`, `GLACIER`, etc.) | `STANDARD` |
 | `content-type` | Override Content-Type for S3 object | Auto-detected from HTTP response |
 | `cache-control` | Cache-Control header for S3 object | - |
-| `metadata` | Custom metadata as JSON object | - |
+| `metadata` | Custom metadata as JSON or semicolon-separated `key=value` pairs | - |
+| `tags` | S3 object tags as JSON or semicolon-separated `key=value` pairs | - |
 
 ## Outputs
 
@@ -172,25 +203,25 @@ Send POST data to an API and upload the response:
 | `s3-url` | S3 URL of uploaded object (s3://bucket/key format) |
 | `s3-etag` | ETag of the uploaded S3 object |
 
-## Header Format
+## Input Formats
 
-Headers can be provided in two formats:
+Headers, metadata, and tags can be provided in two formats:
 
 **JSON format:**
 ```yaml
-headers: |
-  {
-    "Authorization": "Bearer token123",
-    "User-Agent": "MyApp/1.0"
-  }
+headers: '{"Authorization": "Bearer token123", "User-Agent": "MyApp/1.0"}'
+metadata: '{"source": "example.com", "version": "1.0"}'
+tags: '{"Environment": "prod", "Team": "data"}'
 ```
 
-**Key=value format:**
+**Semicolon-separated format:**
 ```yaml
-headers: |
-  Authorization=Bearer token123
-  User-Agent=MyApp/1.0
+headers: 'Authorization=Bearer token123; User-Agent=MyApp/1.0'
+metadata: 'source=example.com; version=1.0'
+tags: 'Environment=prod; Team=data; Cost-Center=12345'
 ```
+
+**Note:** Spaces after semicolons are automatically trimmed.
 
 ## Storage Classes
 

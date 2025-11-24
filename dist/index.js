@@ -63629,6 +63629,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ByteCountingStream = void 0;
+exports.parseKeyValuePairs = parseKeyValuePairs;
 exports.parseHeaders = parseHeaders;
 exports.downloadAsStream = downloadAsStream;
 const core = __importStar(__nccwpck_require__(7484));
@@ -63654,42 +63655,71 @@ class ByteCountingStream extends stream_1.PassThrough {
 }
 exports.ByteCountingStream = ByteCountingStream;
 /**
- * Parse headers from input string
- * Supports both JSON object and multiline key=value format
+ * Parse key=value pairs from input string
+ * Supports both JSON object and semicolon-separated key=value pairs
  */
-function parseHeaders(headersInput) {
-    if (!headersInput || headersInput.trim() === '') {
+function parseKeyValuePairs(input, name = 'input') {
+    if (!input || input.trim() === '') {
         return undefined;
     }
-    const trimmed = headersInput.trim();
+    const trimmed = input.trim();
     // Try parsing as JSON first
     if (trimmed.startsWith('{')) {
         try {
             return JSON.parse(trimmed);
         }
         catch (error) {
-            core.warning(`Failed to parse headers as JSON: ${error}`);
+            core.warning(`Failed to parse ${name} as JSON: ${error}`);
         }
     }
-    // Parse as multiline key=value format
-    const headers = {};
-    const lines = trimmed.split('\n');
-    for (const line of lines) {
-        const trimmedLine = line.trim();
-        if (trimmedLine === '')
+    // Parse as semicolon-separated key=value format
+    const result = {};
+    const pairs = trimmed.split(';');
+    for (const pair of pairs) {
+        const trimmedPair = pair.trim();
+        if (trimmedPair === '')
             continue;
-        const separatorIndex = trimmedLine.indexOf('=');
+        const separatorIndex = trimmedPair.indexOf('=');
         if (separatorIndex === -1) {
-            core.warning(`Skipping invalid header line: ${trimmedLine}`);
+            core.warning(`Skipping invalid ${name} pair: ${trimmedPair}`);
             continue;
         }
-        const key = trimmedLine.substring(0, separatorIndex).trim();
-        const value = trimmedLine.substring(separatorIndex + 1).trim();
+        const key = trimmedPair.substring(0, separatorIndex).trim();
+        const value = trimmedPair.substring(separatorIndex + 1).trim();
         if (key) {
-            headers[key] = value;
+            result[key] = value;
         }
     }
-    return Object.keys(headers).length > 0 ? headers : undefined;
+    return Object.keys(result).length > 0 ? result : undefined;
+}
+/**
+ * Parse headers from input string
+ * Supports both JSON object and semicolon-separated key=value pairs
+ */
+function parseHeaders(headersInput) {
+    return parseKeyValuePairs(headersInput, 'headers');
+}
+/**
+ * Generate Authorization header based on auth type
+ */
+function generateAuthHeader(options) {
+    if (!options.authType || options.authType === 'none') {
+        return undefined;
+    }
+    if (options.authType === 'basic') {
+        if (!options.authUsername || !options.authPassword) {
+            throw new Error('auth-username and auth-password are required for basic authentication');
+        }
+        const credentials = Buffer.from(`${options.authUsername}:${options.authPassword}`).toString('base64');
+        return `Basic ${credentials}`;
+    }
+    if (options.authType === 'bearer') {
+        if (!options.authToken) {
+            throw new Error('auth-token is required for bearer authentication');
+        }
+        return `Bearer ${options.authToken}`;
+    }
+    return undefined;
 }
 /**
  * Download content from URL and return as a stream
@@ -63698,15 +63728,26 @@ function parseHeaders(headersInput) {
 async function downloadAsStream(options) {
     core.info(`Downloading from ${options.url}`);
     core.info(`Method: ${options.method}`);
-    if (options.headers) {
-        core.info(`Headers: ${JSON.stringify(options.headers, null, 2)}`);
+    // Setup authentication
+    const authHeader = generateAuthHeader(options);
+    const headers = { ...options.headers };
+    if (authHeader) {
+        headers['Authorization'] = authHeader;
+        core.info(`Authentication: ${options.authType}`);
     }
+    if (Object.keys(headers).length > 0) {
+        core.info(`Headers: ${JSON.stringify(headers, null, 2)}`);
+    }
+    // Setup timeout
+    const timeout = options.timeout || 900000; // Default 15 minutes
+    core.info(`Timeout: ${timeout}ms (${(timeout / 1000 / 60).toFixed(1)} minutes)`);
     const config = {
         method: options.method,
         url: options.url,
-        headers: options.headers,
+        headers,
         responseType: 'stream',
         maxRedirects: 5,
+        timeout,
         validateStatus: (status) => status < 600, // Don't throw on any status code
     };
     // Add request body for POST/PUT/PATCH
@@ -63714,15 +63755,43 @@ async function downloadAsStream(options) {
         config.data = options.data;
         core.info(`Request body length: ${options.data.length} bytes`);
     }
+    // Retry logic
+    const maxRetries = options.enableRetry ? 3 : 0;
+    const retryDelay = 1000; // Start with 1 second
+    const retryStatusCodes = [408, 429, 500, 502, 503, 504];
+    let lastError;
     let response;
-    try {
-        response = await (0, axios_1.default)(config);
-    }
-    catch (error) {
-        if (axios_1.default.isAxiosError(error)) {
-            throw new Error(`HTTP request failed: ${error.message}${error.response ? ` (Status: ${error.response.status})` : ''}`);
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            if (attempt > 0) {
+                const delay = retryDelay * Math.pow(2, attempt - 1);
+                core.info(`Retry attempt ${attempt}/${maxRetries} after ${delay}ms delay...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+            response = await (0, axios_1.default)(config);
+            lastError = undefined;
+            break; // Success!
         }
-        throw error;
+        catch (error) {
+            if (axios_1.default.isAxiosError(error)) {
+                const status = error.response?.status;
+                const shouldRetry = options.enableRetry &&
+                    attempt < maxRetries &&
+                    (status ? retryStatusCodes.includes(status) : true);
+                if (shouldRetry) {
+                    core.warning(`Request failed (status: ${status || 'unknown'}), will retry...`);
+                    lastError = new Error(`HTTP request failed: ${error.message}${error.response ? ` (Status: ${error.response.status})` : ''}`);
+                    continue; // Retry
+                }
+                else {
+                    throw new Error(`HTTP request failed: ${error.message}${error.response ? ` (Status: ${error.response.status})` : ''}`);
+                }
+            }
+            throw error;
+        }
+    }
+    if (!response) {
+        throw lastError || new Error('HTTP request failed after retries');
     }
     const statusCode = response.status;
     core.info(`Response status: ${statusCode}`);
@@ -63813,15 +63882,23 @@ async function run() {
         const method = core.getInput('method') || 'GET';
         const headersInput = core.getInput('headers');
         const postData = core.getInput('post-data');
+        const timeout = parseInt(core.getInput('timeout') || '900000', 10);
+        const enableRetry = core.getInput('enable-retry') === 'true';
+        const authType = core.getInput('auth-type');
+        const authUsername = core.getInput('auth-username');
+        const authPassword = core.getInput('auth-password');
+        const authToken = core.getInput('auth-token');
         const bucketOwner = core.getInput('bucket-owner');
         const acl = core.getInput('acl');
         const storageClass = core.getInput('storage-class') || 'STANDARD';
         const contentTypeOverride = core.getInput('content-type');
         const cacheControl = core.getInput('cache-control');
         const metadataInput = core.getInput('metadata');
-        // Parse headers and metadata
+        const tagsInput = core.getInput('tags');
+        // Parse headers, metadata, and tags
         const headers = (0, download_1.parseHeaders)(headersInput);
         const metadata = (0, upload_1.parseMetadata)(metadataInput);
+        const tags = (0, upload_1.parseTags)(tagsInput);
         core.info('Starting streaming download from URL...');
         // Download from URL (returns a stream)
         const downloadResult = await (0, download_1.downloadAsStream)({
@@ -63829,6 +63906,12 @@ async function run() {
             method: method.toUpperCase(),
             headers,
             data: postData,
+            timeout,
+            enableRetry,
+            authType,
+            authUsername,
+            authPassword,
+            authToken,
         });
         core.info('HTTP request successful, streaming to S3...');
         // Determine content type (use override if provided, otherwise use detected)
@@ -63845,6 +63928,7 @@ async function run() {
             storageClass,
             cacheControl: cacheControl || undefined,
             metadata,
+            tags,
         });
         core.info('Stream upload completed successfully');
         // Get actual bytes transferred (now that the stream has been fully consumed)
@@ -63969,31 +64053,69 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.parseKeyValuePairs = parseKeyValuePairs;
 exports.parseMetadata = parseMetadata;
+exports.parseTags = parseTags;
 exports.uploadStreamToS3 = uploadStreamToS3;
 const core = __importStar(__nccwpck_require__(7484));
 const client_s3_1 = __nccwpck_require__(3711);
 const lib_storage_1 = __nccwpck_require__(2358);
 /**
+ * Parse key=value pairs from input string
+ * Supports both JSON object and semicolon-separated key=value pairs
+ */
+function parseKeyValuePairs(input, name = 'input') {
+    if (!input || input.trim() === '') {
+        return undefined;
+    }
+    const trimmed = input.trim();
+    // Try parsing as JSON first
+    if (trimmed.startsWith('{')) {
+        try {
+            const parsed = JSON.parse(trimmed);
+            if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+                core.warning(`${name} must be a JSON object`);
+                return undefined;
+            }
+            return parsed;
+        }
+        catch (error) {
+            core.warning(`Failed to parse ${name} as JSON: ${error}`);
+        }
+    }
+    // Parse as semicolon-separated key=value format
+    const result = {};
+    const pairs = trimmed.split(';');
+    for (const pair of pairs) {
+        const trimmedPair = pair.trim();
+        if (trimmedPair === '')
+            continue;
+        const separatorIndex = trimmedPair.indexOf('=');
+        if (separatorIndex === -1) {
+            core.warning(`Skipping invalid ${name} pair: ${trimmedPair}`);
+            continue;
+        }
+        const key = trimmedPair.substring(0, separatorIndex).trim();
+        const value = trimmedPair.substring(separatorIndex + 1).trim();
+        if (key) {
+            result[key] = value;
+        }
+    }
+    return Object.keys(result).length > 0 ? result : undefined;
+}
+/**
  * Parse metadata from input string
- * Expects JSON object format
+ * Supports both JSON object and semicolon-separated key=value pairs
  */
 function parseMetadata(metadataInput) {
-    if (!metadataInput || metadataInput.trim() === '') {
-        return undefined;
-    }
-    try {
-        const parsed = JSON.parse(metadataInput.trim());
-        if (typeof parsed !== 'object' || Array.isArray(parsed)) {
-            core.warning('Metadata must be a JSON object');
-            return undefined;
-        }
-        return parsed;
-    }
-    catch (error) {
-        core.warning(`Failed to parse metadata as JSON: ${error}`);
-        return undefined;
-    }
+    return parseKeyValuePairs(metadataInput, 'metadata');
+}
+/**
+ * Parse tags from input string
+ * Supports both JSON object and semicolon-separated key=value pairs
+ */
+function parseTags(tagsInput) {
+    return parseKeyValuePairs(tagsInput, 'tags');
 }
 /**
  * Validate ACL value
@@ -64054,6 +64176,13 @@ async function uploadStreamToS3(options) {
     else {
         core.info(`Content-Length: unknown (will be determined during upload)`);
     }
+    // Convert tags to S3 tagging format
+    let tagging;
+    if (options.tags && Object.keys(options.tags).length > 0) {
+        tagging = Object.entries(options.tags)
+            .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+            .join('&');
+    }
     // Prepare upload parameters
     const uploadParams = {
         Bucket: options.bucket,
@@ -64068,6 +64197,7 @@ async function uploadStreamToS3(options) {
         StorageClass: storageClass,
         CacheControl: options.cacheControl,
         Metadata: options.metadata,
+        Tagging: tagging,
     };
     // Log upload parameters
     core.info(`Content-Type: ${uploadParams.ContentType || 'not specified'}`);
@@ -64082,6 +64212,9 @@ async function uploadStreamToS3(options) {
     }
     if (uploadParams.Metadata) {
         core.info(`Metadata: ${JSON.stringify(uploadParams.Metadata)}`);
+    }
+    if (uploadParams.Tagging) {
+        core.info(`Tags: ${JSON.stringify(options.tags)}`);
     }
     // Upload to S3 using Upload class (handles streaming properly)
     try {

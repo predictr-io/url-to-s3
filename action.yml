@@ -27,11 +27,39 @@ inputs:
     default: 'GET'
 
   headers:
-    description: 'HTTP headers as JSON object or multiline key=value pairs'
+    description: 'HTTP headers as JSON object or semicolon-separated key=value pairs (e.g., "Key1=Value1; Key2=Value2")'
     required: false
 
   post-data:
     description: 'POST/PUT request body data (used when method is POST or PUT)'
+    required: false
+
+  timeout:
+    description: 'Request timeout in milliseconds (default: 900000 = 15 minutes)'
+    required: false
+    default: '900000'
+
+  enable-retry:
+    description: 'Enable automatic retry on transient failures (default: false)'
+    required: false
+    default: 'false'
+
+  # Authentication parameters
+  auth-type:
+    description: 'Authentication type: none, basic, or bearer (default: none)'
+    required: false
+    default: 'none'
+
+  auth-username:
+    description: 'Username for basic authentication (required if auth-type is basic)'
+    required: false
+
+  auth-password:
+    description: 'Password for basic authentication (required if auth-type is basic)'
+    required: false
+
+  auth-token:
+    description: 'Token for bearer authentication (required if auth-type is bearer)'
     required: false
 
   # Optional S3 parameters
@@ -57,7 +85,11 @@ inputs:
     required: false
 
   metadata:
-    description: 'Custom metadata as JSON object (e.g., {"key1": "value1", "key2": "value2"})'
+    description: 'Custom metadata as JSON object or semicolon-separated key=value pairs (e.g., "key1=value1; key2=value2")'
+    required: false
+
+  tags:
+    description: 'S3 object tags as JSON object or semicolon-separated key=value pairs (e.g., "Environment=prod; Team=data")'
     required: false
 
 outputs:

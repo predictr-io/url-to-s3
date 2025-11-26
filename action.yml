@@ -106,5 +106,5 @@ outputs:
     description: 'ETag of the uploaded S3 object'
 
 runs:
-  using: 'node20'
+  using: 'node24'
   main: 'dist/index.js'

@@ -92,6 +92,11 @@ inputs:
     description: 'S3 object tags as JSON object or semicolon-separated key=value pairs (e.g., "Environment=prod; Team=data")'
     required: false
 
+  if-not-exists:
+    description: 'Only upload if the S3 object does not already exist (default: false)'
+    required: false
+    default: 'false'
+
 outputs:
   status-code:
     description: 'HTTP status code from the URL request'
@@ -104,6 +109,9 @@ outputs:
 
   s3-etag:
     description: 'ETag of the uploaded S3 object'
+
+  object-existed:
+    description: 'Whether the object already existed (true if upload was skipped due to if-not-exists, false if object was uploaded)'
 
 runs:
   using: 'node24'

@@ -1,5 +1,5 @@
 import * as core from '@actions/core';
-import { S3Client, PutObjectCommandInput } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommandInput, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { Readable } from 'stream';
 
@@ -20,6 +20,7 @@ export interface UploadOptions {
 export interface UploadResult {
   etag: string;
   s3Url: string;
+  objectExisted?: boolean;
 }
 
 /**
@@ -140,10 +141,30 @@ function validateStorageClass(storageClass?: string): string | undefined {
 }
 
 /**
+ * Check if an S3 object exists
+ * Returns true if the object exists, false otherwise
+ */
+export async function objectExists(s3Client: S3Client, bucket: string, key: string): Promise<boolean> {
+  try {
+    await s3Client.send(new HeadObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    }));
+    return true;
+  } catch (error: any) {
+    if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
+      return false;
+    }
+    // Re-throw other errors (permissions, etc.)
+    throw error;
+  }
+}
+
+/**
  * Upload stream to S3
  * Streams data directly to S3 without storing locally
  */
-export async function uploadStreamToS3(options: UploadOptions): Promise<UploadResult> {
+export async function uploadStreamToS3(options: UploadOptions, ifNotExists = false): Promise<UploadResult> {
   core.info(`Uploading to S3: s3://${options.bucket}/${options.key}`);
 
   // Validate inputs
@@ -152,6 +173,26 @@ export async function uploadStreamToS3(options: UploadOptions): Promise<UploadRe
 
   // Create S3 client (automatically uses credentials from environment)
   const s3Client = new S3Client({});
+
+  // Check if object exists (if requested)
+  if (ifNotExists) {
+    core.info('Checking if object already exists in S3...');
+    const exists = await objectExists(s3Client, options.bucket, options.key);
+
+    if (exists) {
+      core.info(`Object already exists at s3://${options.bucket}/${options.key}`);
+      core.info('Skipping upload due to if-not-exists flag');
+
+      // Return result with objectExisted flag
+      return {
+        etag: '',
+        s3Url: `s3://${options.bucket}/${options.key}`,
+        objectExisted: true,
+      };
+    }
+
+    core.info('Object does not exist, proceeding with upload');
+  }
 
   // Log content length hint if known
   if (options.contentLengthHint && options.contentLengthHint > 0) {
@@ -231,6 +272,7 @@ export async function uploadStreamToS3(options: UploadOptions): Promise<UploadRe
     return {
       etag,
       s3Url,
+      objectExisted: false,
     };
   } catch (error) {
     if (error instanceof Error) {

@@ -63867,8 +63867,29 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core = __importStar(__nccwpck_require__(7484));
+const client_s3_1 = __nccwpck_require__(3711);
 const download_1 = __nccwpck_require__(1531);
 const upload_1 = __nccwpck_require__(1550);
+/**
+ * Check if an S3 object exists
+ * Returns true if the object exists, false otherwise
+ */
+async function objectExists(s3Client, bucket, key) {
+    try {
+        await s3Client.send(new client_s3_1.HeadObjectCommand({
+            Bucket: bucket,
+            Key: key,
+        }));
+        return true;
+    }
+    catch (error) {
+        if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
+            return false;
+        }
+        // Re-throw other errors (permissions, etc.)
+        throw error;
+    }
+}
 /**
  * Main action entry point
  * Streams content directly from URL to S3 without storing locally
@@ -63900,6 +63921,26 @@ async function run() {
         const headers = (0, download_1.parseHeaders)(headersInput);
         const metadata = (0, upload_1.parseMetadata)(metadataInput);
         const tags = (0, upload_1.parseTags)(tagsInput);
+        // Check if object exists BEFORE downloading (if if-not-exists flag is set)
+        // This avoids unnecessary bandwidth usage when the object already exists
+        if (ifNotExists) {
+            core.info('Checking if S3 object already exists...');
+            const s3Client = new client_s3_1.S3Client({});
+            const exists = await objectExists(s3Client, s3Bucket, s3Key);
+            if (exists) {
+                core.info(`Object already exists at s3://${s3Bucket}/${s3Key}`);
+                core.info('Skipping download and upload due to if-not-exists flag');
+                // Set outputs for skipped operation
+                core.setOutput('status-code', '0'); // No HTTP request made
+                core.setOutput('content-length', '0'); // No bytes transferred
+                core.setOutput('s3-url', `s3://${s3Bucket}/${s3Key}`);
+                core.setOutput('s3-etag', ''); // Unknown etag
+                core.setOutput('object-existed', 'true');
+                core.info('✓ Action completed - object already existed, no download or upload needed');
+                return; // Exit early
+            }
+            core.info('Object does not exist, proceeding with download and upload');
+        }
         core.info('Starting streaming download from URL...');
         // Download from URL (returns a stream)
         const downloadResult = await (0, download_1.downloadAsStream)({
@@ -63918,6 +63959,7 @@ async function run() {
         // Determine content type (use override if provided, otherwise use detected)
         const contentType = contentTypeOverride || downloadResult.contentType;
         // Upload to S3 (streaming directly from download)
+        // Note: We've already checked if-not-exists upfront, so no need to check again
         const uploadResult = await (0, upload_1.uploadStreamToS3)({
             bucket: s3Bucket,
             key: s3Key,
@@ -63930,34 +63972,23 @@ async function run() {
             cacheControl: cacheControl || undefined,
             metadata,
             tags,
-        }, ifNotExists);
-        // Check if upload was skipped due to existing object
-        if (uploadResult.objectExisted) {
-            core.info('✓ Action completed - object already existed, upload skipped');
-            // Set outputs for skipped upload
-            core.setOutput('status-code', downloadResult.statusCode.toString());
-            core.setOutput('content-length', '0'); // No bytes transferred
-            core.setOutput('s3-url', uploadResult.s3Url);
-            core.setOutput('s3-etag', uploadResult.etag); // Empty string
-            core.setOutput('object-existed', 'true');
+        });
+        // Upload completed successfully
+        core.info('Stream upload completed successfully');
+        // Get actual bytes transferred (now that the stream has been fully consumed)
+        const actualBytesTransferred = downloadResult.stream.getBytesTransferred();
+        core.info(`Total bytes transferred: ${actualBytesTransferred} bytes (${(actualBytesTransferred / 1024 / 1024).toFixed(2)} MB)`);
+        // Verify against header if it was provided
+        if (downloadResult.contentLengthHeader > 0 && actualBytesTransferred !== downloadResult.contentLengthHeader) {
+            core.warning(`Bytes transferred (${actualBytesTransferred}) differs from Content-Length header (${downloadResult.contentLengthHeader})`);
         }
-        else {
-            core.info('Stream upload completed successfully');
-            // Get actual bytes transferred (now that the stream has been fully consumed)
-            const actualBytesTransferred = downloadResult.stream.getBytesTransferred();
-            core.info(`Total bytes transferred: ${actualBytesTransferred} bytes (${(actualBytesTransferred / 1024 / 1024).toFixed(2)} MB)`);
-            // Verify against header if it was provided
-            if (downloadResult.contentLengthHeader > 0 && actualBytesTransferred !== downloadResult.contentLengthHeader) {
-                core.warning(`Bytes transferred (${actualBytesTransferred}) differs from Content-Length header (${downloadResult.contentLengthHeader})`);
-            }
-            // Set all outputs ONLY after the entire operation succeeds
-            core.setOutput('status-code', downloadResult.statusCode.toString());
-            core.setOutput('content-length', actualBytesTransferred.toString()); // Use actual bytes, not header
-            core.setOutput('s3-url', uploadResult.s3Url);
-            core.setOutput('s3-etag', uploadResult.etag);
-            core.setOutput('object-existed', 'false');
-            core.info('✓ Action completed successfully - content streamed directly to S3');
-        }
+        // Set all outputs ONLY after the entire operation succeeds
+        core.setOutput('status-code', downloadResult.statusCode.toString());
+        core.setOutput('content-length', actualBytesTransferred.toString()); // Use actual bytes, not header
+        core.setOutput('s3-url', uploadResult.s3Url);
+        core.setOutput('s3-etag', uploadResult.etag);
+        core.setOutput('object-existed', 'false');
+        core.info('✓ Action completed successfully - content streamed directly to S3');
     }
     catch (error) {
         // Provide comprehensive error information for debugging
@@ -64070,7 +64101,6 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.parseKeyValuePairs = parseKeyValuePairs;
 exports.parseMetadata = parseMetadata;
 exports.parseTags = parseTags;
-exports.objectExists = objectExists;
 exports.uploadStreamToS3 = uploadStreamToS3;
 const core = __importStar(__nccwpck_require__(7484));
 const client_s3_1 = __nccwpck_require__(3711);
@@ -64174,52 +64204,19 @@ function validateStorageClass(storageClass) {
     return storageClass;
 }
 /**
- * Check if an S3 object exists
- * Returns true if the object exists, false otherwise
- */
-async function objectExists(s3Client, bucket, key) {
-    try {
-        await s3Client.send(new client_s3_1.HeadObjectCommand({
-            Bucket: bucket,
-            Key: key,
-        }));
-        return true;
-    }
-    catch (error) {
-        if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
-            return false;
-        }
-        // Re-throw other errors (permissions, etc.)
-        throw error;
-    }
-}
-/**
  * Upload stream to S3
  * Streams data directly to S3 without storing locally
+ *
+ * Note: The if-not-exists check is now performed in index.ts BEFORE downloading,
+ * so this function no longer needs the ifNotExists parameter.
  */
-async function uploadStreamToS3(options, ifNotExists = false) {
+async function uploadStreamToS3(options) {
     core.info(`Uploading to S3: s3://${options.bucket}/${options.key}`);
     // Validate inputs
     const acl = validateAcl(options.acl);
     const storageClass = validateStorageClass(options.storageClass);
     // Create S3 client (automatically uses credentials from environment)
     const s3Client = new client_s3_1.S3Client({});
-    // Check if object exists (if requested)
-    if (ifNotExists) {
-        core.info('Checking if object already exists in S3...');
-        const exists = await objectExists(s3Client, options.bucket, options.key);
-        if (exists) {
-            core.info(`Object already exists at s3://${options.bucket}/${options.key}`);
-            core.info('Skipping upload due to if-not-exists flag');
-            // Return result with objectExisted flag
-            return {
-                etag: '',
-                s3Url: `s3://${options.bucket}/${options.key}`,
-                objectExisted: true,
-            };
-        }
-        core.info('Object does not exist, proceeding with upload');
-    }
     // Log content length hint if known
     if (options.contentLengthHint && options.contentLengthHint > 0) {
         core.info(`Content-Length hint: ${options.contentLengthHint} bytes (${(options.contentLengthHint / 1024 / 1024).toFixed(2)} MB)`);

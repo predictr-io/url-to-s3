@@ -28,11 +28,12 @@ async function objectExists(s3Client: S3Client, bucket: string, key: string): Pr
  * Streams content directly from URL to S3 without storing locally
  */
 async function run(): Promise<void> {
+  // Get inputs outside try block so they're available in catch for error summary
+  const url = core.getInput('url', { required: true });
+  const s3Bucket = core.getInput('s3-bucket', { required: true });
+  const s3Key = core.getInput('s3-key', { required: true });
+
   try {
-    // Get inputs
-    const url = core.getInput('url', { required: true });
-    const s3Bucket = core.getInput('s3-bucket', { required: true });
-    const s3Key = core.getInput('s3-key', { required: true });
 
     const method = core.getInput('method') || 'GET';
     const headersInput = core.getInput('headers');
@@ -70,12 +71,25 @@ async function run(): Promise<void> {
         core.info(`Object already exists at s3://${s3Bucket}/${s3Key}`);
         core.info('Skipping download and upload due to if-not-exists flag');
 
+        const s3Url = `s3://${s3Bucket}/${s3Key}`;
+
         // Set outputs for skipped operation
         core.setOutput('status-code', '0'); // No HTTP request made
         core.setOutput('content-length', '0'); // No bytes transferred
-        core.setOutput('s3-url', `s3://${s3Bucket}/${s3Key}`);
+        core.setOutput('s3-url', s3Url);
         core.setOutput('s3-etag', ''); // Unknown etag
         core.setOutput('object-existed', 'true');
+
+        // Write summary to GitHub Step Summary
+        await core.summary
+          .addHeading('URL to S3 Transfer Summary')
+          .addTable([
+            [{data: 'Source URL', header: true}, url],
+            [{data: 'Target S3', header: true}, s3Url],
+            [{data: 'Status', header: true}, '⏭️ Skipped (object already exists)'],
+            [{data: 'Bytes Transferred', header: true}, '0'],
+          ])
+          .write();
 
         core.info('✓ Action completed - object already existed, no download or upload needed');
         return; // Exit early
@@ -142,6 +156,23 @@ async function run(): Promise<void> {
     core.setOutput('s3-etag', uploadResult.etag);
     core.setOutput('object-existed', 'false');
 
+    // Format bytes for display
+    const bytesFormatted = actualBytesTransferred.toLocaleString();
+    const mbFormatted = (actualBytesTransferred / 1024 / 1024).toFixed(2);
+
+    // Write summary to GitHub Step Summary
+    await core.summary
+      .addHeading('URL to S3 Transfer Summary')
+      .addTable([
+        [{data: 'Source URL', header: true}, url],
+        [{data: 'Target S3', header: true}, uploadResult.s3Url],
+        [{data: 'Status', header: true}, '✅ Success'],
+        [{data: 'HTTP Status', header: true}, downloadResult.statusCode.toString()],
+        [{data: 'Bytes Transferred', header: true}, `${bytesFormatted} (${mbFormatted} MB)`],
+        [{data: 'S3 ETag', header: true}, uploadResult.etag],
+      ])
+      .write();
+
     core.info('✓ Action completed successfully - content streamed directly to S3');
   } catch (error) {
     // Provide comprehensive error information for debugging
@@ -203,13 +234,37 @@ async function run(): Promise<void> {
         }
       }
 
+      // Write failure summary to GitHub Step Summary
+      await core.summary
+        .addHeading('URL to S3 Transfer Summary')
+        .addTable([
+          [{data: 'Source URL', header: true}, url],
+          [{data: 'Target S3', header: true}, `s3://${s3Bucket}/${s3Key}`],
+          [{data: 'Status', header: true}, '❌ Failed'],
+          [{data: 'Error', header: true}, error.message],
+        ])
+        .write();
+
       // Set the failure with a clear message
       core.setFailed(`Action failed: ${error.message}`);
     } else {
       // Handle non-Error objects
+      const errorMessage = 'An unknown error occurred - check logs for details';
+
+      // Write failure summary to GitHub Step Summary
+      await core.summary
+        .addHeading('URL to S3 Transfer Summary')
+        .addTable([
+          [{data: 'Source URL', header: true}, url],
+          [{data: 'Target S3', header: true}, `s3://${s3Bucket}/${s3Key}`],
+          [{data: 'Status', header: true}, '❌ Failed'],
+          [{data: 'Error', header: true}, errorMessage],
+        ])
+        .write();
+
       core.error(`Unknown error type: ${typeof error}`);
       core.error(`Error value: ${JSON.stringify(error, null, 2)}`);
-      core.setFailed('An unknown error occurred - check logs for details');
+      core.setFailed(errorMessage);
     }
   }
 }

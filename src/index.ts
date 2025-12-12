@@ -64,7 +64,9 @@ async function run(): Promise<void> {
     // This avoids unnecessary bandwidth usage when the object already exists
     if (ifNotExists) {
       core.info('Checking if S3 object already exists...');
-      const s3Client = new S3Client({});
+      const s3Client = new S3Client({
+        requestChecksumCalculation: 'WHEN_REQUIRED',
+      });
       const exists = await objectExists(s3Client, s3Bucket, s3Key);
 
       if (exists) {

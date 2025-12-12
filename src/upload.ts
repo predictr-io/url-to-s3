@@ -155,7 +155,10 @@ export async function uploadStreamToS3(options: UploadOptions): Promise<UploadRe
   const storageClass = validateStorageClass(options.storageClass);
 
   // Create S3 client (automatically uses credentials from environment)
-  const s3Client = new S3Client({});
+  // Disable request checksums for LocalStack compatibility (LocalStack has issues with CRC32)
+  const s3Client = new S3Client({
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+  });
 
   // Log content length hint if known
   if (options.contentLengthHint && options.contentLengthHint > 0) {

@@ -63925,7 +63925,9 @@ async function run() {
         // This avoids unnecessary bandwidth usage when the object already exists
         if (ifNotExists) {
             core.info('Checking if S3 object already exists...');
-            const s3Client = new client_s3_1.S3Client({});
+            const s3Client = new client_s3_1.S3Client({
+                requestChecksumCalculation: 'WHEN_REQUIRED',
+            });
             const exists = await objectExists(s3Client, s3Bucket, s3Key);
             if (exists) {
                 core.info(`Object already exists at s3://${s3Bucket}/${s3Key}`);
@@ -64263,7 +64265,10 @@ async function uploadStreamToS3(options) {
     const acl = validateAcl(options.acl);
     const storageClass = validateStorageClass(options.storageClass);
     // Create S3 client (automatically uses credentials from environment)
-    const s3Client = new client_s3_1.S3Client({});
+    // Disable request checksums for LocalStack compatibility (LocalStack has issues with CRC32)
+    const s3Client = new client_s3_1.S3Client({
+        requestChecksumCalculation: 'WHEN_REQUIRED',
+    });
     // Log content length hint if known
     if (options.contentLengthHint && options.contentLengthHint > 0) {
         core.info(`Content-Length hint: ${options.contentLengthHint} bytes (${(options.contentLengthHint / 1024 / 1024).toFixed(2)} MB)`);

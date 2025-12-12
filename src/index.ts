@@ -144,11 +144,20 @@ async function run(): Promise<void> {
     const actualBytesTransferred = downloadResult.stream.getBytesTransferred();
     core.info(`Total bytes transferred: ${actualBytesTransferred} bytes (${(actualBytesTransferred / 1024 / 1024).toFixed(2)} MB)`);
 
-    // Verify against header if it was provided
+    // Verify against header if it was provided and there's no compression
+    // Note: When Content-Encoding is present (gzip, deflate, br, etc.), axios decompresses automatically,
+    // so actualBytesTransferred will be the decompressed size while Content-Length is the compressed size
     if (downloadResult.contentLengthHeader > 0 && actualBytesTransferred !== downloadResult.contentLengthHeader) {
-      core.warning(
-        `Bytes transferred (${actualBytesTransferred}) differs from Content-Length header (${downloadResult.contentLengthHeader})`
-      );
+      if (downloadResult.contentEncoding) {
+        core.info(
+          `Content-Length header (${downloadResult.contentLengthHeader} bytes) is compressed size, ` +
+          `actual decompressed size is ${actualBytesTransferred} bytes`
+        );
+      } else {
+        core.warning(
+          `Bytes transferred (${actualBytesTransferred}) differs from Content-Length header (${downloadResult.contentLengthHeader})`
+        );
+      }
     }
 
     // Set all outputs ONLY after the entire operation succeeds

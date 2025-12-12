@@ -63800,8 +63800,12 @@ async function downloadAsStream(options) {
         throw new Error(`HTTP request failed with status ${statusCode}: ${response.statusText}`);
     }
     const contentType = response.headers['content-type'];
+    const contentEncoding = response.headers['content-encoding'];
     const contentLengthHeader = parseInt(response.headers['content-length'] || '0', 10);
     core.info(`Content-Type: ${contentType || 'unknown'}`);
+    if (contentEncoding) {
+        core.info(`Content-Encoding: ${contentEncoding} (response will be decompressed)`);
+    }
     if (contentLengthHeader > 0) {
         core.info(`Content-Length header: ${contentLengthHeader} bytes (${(contentLengthHeader / 1024 / 1024).toFixed(2)} MB)`);
     }
@@ -63820,6 +63824,7 @@ async function downloadAsStream(options) {
         statusCode,
         contentLengthHeader: contentLengthHeader || 0,
         contentType,
+        contentEncoding,
         stream: byteCounter,
     };
 }
@@ -63991,9 +63996,17 @@ async function run() {
         // Get actual bytes transferred (now that the stream has been fully consumed)
         const actualBytesTransferred = downloadResult.stream.getBytesTransferred();
         core.info(`Total bytes transferred: ${actualBytesTransferred} bytes (${(actualBytesTransferred / 1024 / 1024).toFixed(2)} MB)`);
-        // Verify against header if it was provided
+        // Verify against header if it was provided and there's no compression
+        // Note: When Content-Encoding is present (gzip, deflate, br, etc.), axios decompresses automatically,
+        // so actualBytesTransferred will be the decompressed size while Content-Length is the compressed size
         if (downloadResult.contentLengthHeader > 0 && actualBytesTransferred !== downloadResult.contentLengthHeader) {
-            core.warning(`Bytes transferred (${actualBytesTransferred}) differs from Content-Length header (${downloadResult.contentLengthHeader})`);
+            if (downloadResult.contentEncoding) {
+                core.info(`Content-Length header (${downloadResult.contentLengthHeader} bytes) is compressed size, ` +
+                    `actual decompressed size is ${actualBytesTransferred} bytes`);
+            }
+            else {
+                core.warning(`Bytes transferred (${actualBytesTransferred}) differs from Content-Length header (${downloadResult.contentLengthHeader})`);
+            }
         }
         // Set all outputs ONLY after the entire operation succeeds
         core.setOutput('status-code', downloadResult.statusCode.toString());

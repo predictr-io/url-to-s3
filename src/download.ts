@@ -40,6 +40,7 @@ export interface DownloadResult {
   statusCode: number;
   contentLengthHeader: number; // From HTTP header (may be 0 for chunked)
   contentType?: string;
+  contentEncoding?: string; // Content-Encoding header (e.g., 'gzip', 'deflate', 'br')
   stream: ByteCountingStream;
 }
 
@@ -226,9 +227,13 @@ export async function downloadAsStream(
   }
 
   const contentType = response.headers['content-type'];
+  const contentEncoding = response.headers['content-encoding'];
   const contentLengthHeader = parseInt(response.headers['content-length'] || '0', 10);
 
   core.info(`Content-Type: ${contentType || 'unknown'}`);
+  if (contentEncoding) {
+    core.info(`Content-Encoding: ${contentEncoding} (response will be decompressed)`);
+  }
   if (contentLengthHeader > 0) {
     core.info(`Content-Length header: ${contentLengthHeader} bytes (${(contentLengthHeader / 1024 / 1024).toFixed(2)} MB)`);
   } else {
@@ -250,6 +255,7 @@ export async function downloadAsStream(
     statusCode,
     contentLengthHeader: contentLengthHeader || 0,
     contentType,
+    contentEncoding,
     stream: byteCounter,
   };
 }

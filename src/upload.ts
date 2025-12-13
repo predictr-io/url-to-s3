@@ -9,6 +9,7 @@ export interface UploadOptions {
   stream: Readable;
   contentLengthHint?: number; // Hint from HTTP header (may be 0 for chunked)
   contentType?: string;
+  contentEncoding?: string; // If set, contentLengthHint is compressed size and should be ignored
   bucketOwner?: string;
   acl?: string;
   storageClass?: string;
@@ -181,9 +182,9 @@ export async function uploadStreamToS3(options: UploadOptions): Promise<UploadRe
     Key: options.key,
     Body: options.stream,
     ContentType: options.contentType,
-    // Only set ContentLength if we have a hint from the HTTP header
-    // AWS SDK can handle uploads without ContentLength (uses chunked encoding)
-    ContentLength: options.contentLengthHint && options.contentLengthHint > 0 ? options.contentLengthHint : undefined,
+    // Don't set ContentLength - let AWS SDK handle it with chunked encoding
+    // This avoids issues with compressed responses where Content-Length header
+    // represents compressed size but stream contains decompressed data
     ExpectedBucketOwner: options.bucketOwner,
     ACL: acl as any,
     StorageClass: storageClass as any,
